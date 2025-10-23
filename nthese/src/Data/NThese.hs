@@ -1,10 +1,13 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
+
 module Data.NThese (module Data.NThese) where
 
 -- base
 import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
-import Data.Kind (Type)
+import Data.Kind (Constraint, Type)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Unsafe.Coerce (unsafeCoerce)
@@ -23,7 +26,7 @@ import Data.These qualified as These
 import Witherable (Filterable (catMaybes), (<&?>))
 
 -- semialign
-import Data.Align (Semialign (..), Unalign (..))
+import Data.Align (Align (..), Semialign (..), Unalign (..))
 
 {- | An n-ary generalisation of the 'These' datatype.
 
@@ -232,6 +235,13 @@ alignN = \case
       fgas -> case sList :: SList as of
         SCons -> Just $ alignN fgas
 
+{- | Generalise 'nil' to 'NThese'.
+
+Creates an 'NThese' filled with 'nil's.
+-}
+nilN :: forall a as f g. (SListI as, Align f) => NThese (f :.: g) (a : as)
+nilN = hpure $ Comp nil
+
 {- | Generalise 'unalign' to 'NThese'.
 
 'unalign' has this type signature:
@@ -254,6 +264,29 @@ type instance Same NThese = NThese
 
 type instance Prod NThese = NP
 
+-- | Helper class to constrain the type level list on 'NThese' always to be nonempty
+class (SListI as) => SListINThese as
+
+type instance SListIN NThese = SListINThese
+
+instance (SListI as, as ~ a : as') => SListINThese as
+
+-- | Will incur an extra constraint on the type level list not to be empty
+instance HPure NThese where
+  hpure :: forall k (xs :: [k]) (f :: k -> Type). (SListIN NThese xs) => (forall (a :: k). f a) -> NThese f xs
+  hpure fa = case sList :: SList xs of
+    SNil -> error "Impossible pattern"
+    SCons -> TheseHere fa $ hpure $ Comp $ Just fa
+  hcpure ::
+    forall k (c :: k -> Constraint) (xs :: [k]) (proxy :: (k -> Constraint) -> Type) (f :: k -> Type).
+    (AllN NThese c xs) =>
+    proxy c ->
+    (forall (a :: k). (c a) => f a) ->
+    NThese f xs
+  hcpure proxy fa = case sList :: SList xs of
+    SNil -> error "Impossible pattern"
+    SCons -> TheseHere fa $ hcpure proxy $ Comp $ Just fa
+
 instance HAp NThese where
   hap = \case
     Nil -> \case {}
@@ -270,8 +303,6 @@ instance HAp NThese where
 
 type instance CollapseTo NThese a = NonEmpty a
 
-type instance SListIN NThese = SListI
-
 instance HCollapse NThese where
   hcollapse = collapse_NTHese
     where
@@ -285,7 +316,9 @@ type instance AllN NThese c = All c
 instance HTraverse_ NThese where
   htraverse_ f = \case
     TheseHere fa fas -> f fa *> htraverse_ (traverse_ f . unComp) fas
-    Those fas -> htraverse_ f fas
+    Those fas -> case fas of
+      TheseHere {} -> htraverse_ f fas
+      Those {} -> htraverse_ f fas
   hctraverse_ proxy f = \case
     TheseHere fa fas -> f fa *> hctraverse_ proxy (traverse_ f . unComp) fas
     Those fas -> hctraverse_ proxy f fas
@@ -293,7 +326,9 @@ instance HTraverse_ NThese where
 instance HSequence NThese where
   hsequence' = \case
     TheseHere (Comp fga) fgas -> TheseHere <$> fga <*> htraverse' (fmap Comp . traverse unComp . unComp) fgas
-    Those fgas -> Those <$> hsequence' fgas
+    Those fgas -> case fgas of
+      TheseHere {} -> Those <$> hsequence' fgas
+      Those {} -> Those <$> hsequence' fgas
 
   hctraverse' proxy f = \case
     TheseHere fa fas -> TheseHere <$> f fa <*> hctraverse' proxy (fmap Comp . traverse f . unComp) fas
@@ -301,7 +336,10 @@ instance HSequence NThese where
 
   htraverse' f = \case
     TheseHere fa fas -> TheseHere <$> f fa <*> htraverse' (fmap Comp . traverse f . unComp) fas
-    Those fas -> Those <$> htraverse' f fas
+    -- Those fas -> Those <$> withNonEmpty (Proxy @(SListIN NThese)) (htraverse' f) fas
+    Those fas -> case fas of
+      TheseHere {} -> Those <$> htraverse' f fas
+      Those {} -> Those <$> htraverse' f fas
 
 instance HExpand NThese where
   hexpand fa0 = \case
