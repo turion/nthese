@@ -18,6 +18,8 @@
 
       # Always keep in sync with the tested-with section in the cabal file
       supportedGhcs = [
+        "ghc96"
+        "ghc98"
         "ghc910"
         "ghc912"
       ];
@@ -31,7 +33,7 @@
           forEachGHC = mapAttrs (allLocalPackagesFor pkgs) (haskellPackagesExtended pkgs);
           allGHCs = pkgs.linkFarm "${projectName}-all-ghcs" forEachGHC;
           haskellPackagesPerGHC = genAttrs supportedGhcs (ghc: pkgs.haskell.packages.${ghc})
-          // { default = pkgs.haskell.packages.ghc910; };
+          // { default = pkgs.haskellPackages; };
 
           overrides = hfinal: hprev: with pkgs.haskell.lib;
             (mapAttrs (pname: path: hfinal.callCabal2nix pname path { }) localPackages);
