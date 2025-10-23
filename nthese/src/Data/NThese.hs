@@ -304,12 +304,12 @@ instance HAp NThese where
 type instance CollapseTo NThese a = NonEmpty a
 
 instance HCollapse NThese where
-  hcollapse = collapse_NTHese
+  hcollapse = collapse_NThese
     where
-      collapse_NTHese :: (SListI as) => NThese (K a) as -> NonEmpty a
-      collapse_NTHese = \case
+      collapse_NThese :: (SListI as) => NThese (K a) as -> NonEmpty a
+      collapse_NThese = \case
         TheseHere (K fa) fas -> fa :| (fas & hmap (maybe (K Nothing) (K . Just . unK) . unComp) & hcollapse & catMaybes)
-        Those fas -> collapse_NTHese fas
+        Those fas -> collapse_NThese fas
 
 type instance AllN NThese c = All c
 
