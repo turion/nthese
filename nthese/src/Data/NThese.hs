@@ -15,9 +15,9 @@ import Data.SOP.Classes (HPure (..), HTrans (..), Same)
 import Data.SOP.Constraint (SListIN)
 
 -- these
+import Data.Functor.These (These1 (..))
 import Data.These (These (..))
 import Data.These qualified as These
-import Data.Functor.These (These1 (..))
 
 -- witherable
 import Witherable (Filterable (catMaybes), (<&?>))
@@ -43,14 +43,16 @@ and potentially all of them.
 data NThese :: (k -> Type) -> [k] -> Type where
   -- | The first present value is at the head, further values may be present in the tail.
   TheseHere ::
-   -- | The first present value
-   f a ->
-  -- | The tail, possibly containing values
-   NP (Maybe :.: f) as -> NThese f (a : as)
-  -- |There is no value right here, but there are some values guaranteed to be in the tail
+    -- | The first present value
+    f a ->
+    -- | The tail, possibly containing values
+    NP (Maybe :.: f) as ->
+    NThese f (a : as)
+  -- | There is no value right here, but there are some values guaranteed to be in the tail
   Those ::
     -- | The tail, guaranteed to contain values
-    NThese f as -> NThese f (a : as)
+    NThese f as ->
+    NThese f (a : as)
 
 -- * Accessing the head of 'NThese'
 
@@ -246,7 +248,7 @@ unalignN fgas = case sList :: SList as of
   SCons ->
     fgas
       & unalignWith toThese
-      & \(fga, fgas') -> (Comp fga) :* unalignN fgas'
+      & \(fga, fgas') -> Comp fga :* unalignN fgas'
 
 type instance Same NThese = NThese
 
