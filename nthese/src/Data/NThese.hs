@@ -4,26 +4,22 @@
 module Data.NThese (module Data.NThese) where
 
 -- base
-import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Kind (Constraint, Type)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe)
+import Data.List.NonEmpty qualified as NonEmpty
 import Unsafe.Coerce (unsafeCoerce)
 
 -- sop-core
-import Data.SOP (All, AllN, AllZip, AllZipN, CollapseTo, HAp (..), HApInjs (hapInjs), HCollapse (..), HExpand (..), HSequence (..), HTrans, HTraverse_ (..), K (..), NP (..), NS (..), Prod, SList (..), SListI, hcliftA, hliftA, hmap, hzipWith, sList, unComp, unK, type (-.->) (Fn, apFn), type (:.:) (..))
+import Data.SOP (All, AllN, AllZip, AllZipN, CollapseTo, HAp (..), HCollapse (..), HExpand (..), HSequence (..), HTrans, HTraverse_ (..), K (..), NP (..), NS (..), Prod, SList (..), SListI, hmap, sList, unK, type (-.->) (apFn), type (:.:) (..))
 import Data.SOP.Classes (HPure (..), HTrans (..), Same)
-import Data.SOP.Constraint (SListIN)
+import Data.SOP.Constraint (SListIN, Tail)
 
 -- these
 import Data.Functor.These (These1 (..))
 import Data.These (These (..))
 import Data.These qualified as These
-
--- witherable
-import Witherable (Filterable (catMaybes), (<&?>))
 
 -- semialign
 import Data.Align (Align (..), Semialign (..), Unalign (..))
@@ -44,77 +40,79 @@ and potentially all of them.
   while 'NThese' has at most @n@ elements and contains positional information about the present values.
 -}
 data NThese :: (k -> Type) -> [k] -> Type where
-  -- | The first present value is at the head, further values may be present in the tail.
+  -- | There is a value right here, and no values in the tail. Generalises 'This'.
+  ThisHere ::
+    -- | The value right here
+    f a ->
+    NThese f (a : as)
+  -- | There is no value right here, but there are some values guaranteed to be in the tail. Generalises 'That'.
+  ThatThere ::
+    -- | The tail, guaranteed to contain values
+    NThese f as ->
+    NThese f (a : as)
+  -- | The first present value is at the head, further values are in the tail. Generalises 'These'.
   TheseHere ::
     -- | The first present value
     f a ->
-    -- | The tail, possibly containing values
-    NP (Maybe :.: f) as ->
-    NThese f (a : as)
-  -- | There is no value right here, but there are some values guaranteed to be in the tail
-  Those ::
-    -- | The tail, guaranteed to contain values
+    -- | The tail, guaranteed to contain further values
     NThese f as ->
     NThese f (a : as)
 
 -- * Accessing the head of 'NThese'
 
-{- | Destruct the 'TheseHere' constructor.
+{- | Get the first element when it's guaranteed to be present
 
 When there is only one type variable, 'TheseHere' is the only possible constructor,
 so the type is isomorphic to @f a@.
 -}
-unTheseHere :: NThese f '[a] -> f a
-unTheseHere (TheseHere fa Nil) = fa
-unTheseHere (Those impossible) = case impossible of {}
+unThisHere :: NThese f '[a] -> f a
+unThisHere (ThisHere fa) = fa
+unThisHere (TheseHere _ impossible) = case impossible of {}
+unThisHere (ThatThere impossible) = case impossible of {}
 
 -- | Extract the first element, if present.
 safeHead :: NThese f (a : as) -> Maybe (f a)
+safeHead (ThisHere fa) = Just fa
 safeHead (TheseHere fa _) = Just fa
-safeHead (Those _) = Nothing
+safeHead (ThatThere _) = Nothing
 
 -- | Prepend an element.
 cons :: f a -> NThese f as -> NThese f (a : as)
-cons fa fas = TheseHere fa $ toNP fas
+cons = TheseHere
 
 -- | Prepend a possibly absent element.
 consMaybe :: Maybe (f a) -> NThese f as -> NThese f (a : as)
 consMaybe = \case
-  Nothing -> Those
+  Nothing -> ThatThere
   Just fa -> cons fa
 
--- * Generalisation of 'These'
+-- * Relationship to 'These'
 
--- | Generalisation of 'This'.
-mkThis :: (SListI as) => f a -> NThese f (a : as)
-mkThis fa = TheseHere fa $ hpure $ Comp Nothing
-
--- | Generalisation of 'That'.
+-- | Extension of 'That' to more type parameters.
 mkThat :: (SListI as) => f a2 -> NThese f (a1 : a2 : as)
-mkThat fa2 = Those $ mkThis fa2
+mkThat fa2 = ThatThere $ ThisHere fa2
 
--- | Generalisation of 'These'.
+-- | Extension of 'These' to more type parameters.
 mkThese :: (SListI as) => f a1 -> f a2 -> NThese f (a1 : a2 : as)
-mkThese fa1 fa2 = TheseHere fa1 $ toNP $ mkThis fa2
+mkThese fa1 fa2 = TheseHere fa1 $ ThisHere fa2
 
 -- | Witness that 'NThese' is a generalisation of 'These' with @n >= 2@ type variables.
 fromThese :: (SListI as) => These (f a1) (f a2) -> NThese f (a1 : a2 : as)
-fromThese = These.these mkThis mkThat mkThese
+fromThese = These.these ThisHere mkThat mkThese
 
 -- | 'NThese' is recursively isomorphic to 'These'.
 toThese :: NThese f (a : as) -> These (f a) (NThese f as)
 toThese = \case
-  TheseHere fa fas -> case fromNPMaybe fas of
-    Nothing -> This fa
-    Just fas' -> These fa fas'
-  Those fas -> That fas
+  ThisHere fa -> This fa
+  ThatThere fas -> That fas
+  TheseHere fa fas -> These fa fas
 
 -- | Inverse of 'toThese'.
 absorbThese :: (SListI as) => These (f a) (NThese f as) -> NThese f (a : as)
 absorbThese = \case
-  This fa -> mkThis fa
-  That fas -> Those fas
-  These fa fas -> cons fa fas
+  This fa -> ThisHere fa
+  That fas -> ThatThere fas
+  These fa fas -> TheseHere fa fas
 
 -- * Interaction with other n-ary heterogeneous datatypes
 
@@ -126,14 +124,15 @@ An n-ary sum contains exactly one element, 'NThese' contains at least one elemen
 -}
 fromNS :: (SListI as) => NS f as -> NThese f as
 fromNS = \case
-  Z fa -> mkThis fa
-  S ns -> Those $ fromNS ns
+  Z fa -> ThisHere fa
+  S ns -> ThatThere $ fromNS ns
 
 -- | Project onto the first present element, discarding the rest.
 headNS :: NThese f as -> NS f as
 headNS = \case
+  ThisHere fa -> Z fa
+  ThatThere fas -> S $ headNS fas
   TheseHere fa _ -> Z fa
-  Those fas -> S $ headNS fas
 
 {- | Extract all elements into a 'NonEmpty' list.
 
@@ -141,8 +140,9 @@ The information that we have at most one element of each type is lost.
 -}
 toNSs :: (SListI as) => NThese f as -> NonEmpty (NS f as)
 toNSs = \case
-  TheseHere fa np -> Z fa :| (np & hapInjs <&?> htraverse' unComp <&> S)
-  Those nt -> toNSs nt <&> S
+  ThisHere fa -> Z fa :| []
+  ThatThere nt -> toNSs nt <&> S
+  TheseHere fa fas -> Z fa `NonEmpty.cons` fmap S (toNSs fas)
 
 -- ** N-ary products
 
@@ -152,7 +152,8 @@ An n-ary products contains exactly, n elements, 'NThese' contains at most one el
 -}
 fromNP :: (SListI as) => NP f (a : as) -> NThese f (a : as)
 fromNP = \case
-  fa :* fas -> TheseHere fa $ hmap (Comp . Just) fas
+  fa :* Nil -> ThisHere fa
+  fa :* fas@(_ :* _) -> TheseHere fa $ fromNP fas
 
 {- | Injection of possibly absent n-ary products.
 
@@ -162,17 +163,18 @@ In case that there is no element, 'Nothing' is returned.
 fromNPMaybe :: NP (Maybe :.: f) as -> Maybe (NThese f as)
 fromNPMaybe = \case
   Nil -> Nothing
-  Comp (Just fa) :* fas -> Just $ TheseHere fa fas
-  Comp Nothing :* fas -> fromNPMaybe fas <&> Those
+  Comp (Just fa) :* fas -> Just $ maybe (ThisHere fa) (TheseHere fa) $ fromNPMaybe fas
+  Comp Nothing :* fas -> fromNPMaybe fas <&> ThatThere
 
 {- | Projection onto possibly absent n-ary products.
 
 The information that there is at least one element is lost.
 -}
-toNP :: NThese f as -> NP (Maybe :.: f) as
+toNP :: (SListI as) => NThese f as -> NP (Maybe :.: f) as
 toNP = \case
-  TheseHere fa fas -> Comp (Just fa) :* fas
-  Those fas -> Comp Nothing :* toNP fas
+  ThisHere fa -> Comp (Just fa) :* hpure (Comp Nothing)
+  ThatThere fas -> Comp Nothing :* toNP fas
+  TheseHere fa fas -> Comp (Just fa) :* toNP fas
 
 {- | Zip two 'NThese' together.
 
@@ -183,24 +185,18 @@ Each position may contain:
 -}
 zipNThese :: (SListI as) => NThese f as -> NThese g as -> NThese (These1 f g) as
 zipNThese = \case
-  TheseHere fa1 fas1 -> \case
-    TheseHere fa2 fas2 ->
-      TheseHere (These1 fa1 fa2) $
-        hzipWith
-          ( \case
-              (Comp (Just fa1')) -> \case
-                (Comp (Just fa2')) -> Comp $ Just $ These1 fa1' fa2'
-                (Comp Nothing) -> Comp $ Just $ This1 fa1'
-              (Comp Nothing) -> \case
-                (Comp (Just fa2')) -> Comp $ Just $ That1 fa2'
-                (Comp Nothing) -> Comp Nothing
-          )
-          fas1
-          fas2
-    Those fas2 -> TheseHere (This1 fa1) $ toNP $ hzipWith (\(Comp fa1') fa2 -> maybe (That1 fa2) (`These1` fa2) fa1') fas1 fas2
-  Those fas1 -> \case
-    TheseHere fa2 fas2 -> TheseHere (That1 fa2) $ toNP $ hzipWith (\(Comp fa2') fa1 -> maybe (This1 fa1) (These1 fa1) fa2') fas2 fas1
-    Those fas2 -> Those $ zipNThese fas1 fas2
+  ThisHere fa -> \case
+    ThisHere ga -> ThisHere $ These1 fa ga
+    ThatThere gas -> TheseHere (This1 fa) $ hmap That1 gas
+    TheseHere ga gas -> TheseHere (These1 fa ga) $ hmap That1 gas
+  ThatThere fas -> \case
+    ThisHere ga -> TheseHere (That1 ga) $ hmap This1 fas
+    ThatThere gas -> ThatThere $ zipNThese fas gas
+    TheseHere ga gas -> TheseHere (That1 ga) $ zipNThese fas gas
+  TheseHere fa fas -> \case
+    ThisHere ga -> TheseHere (These1 fa ga) $ hmap This1 fas
+    ThatThere gas -> TheseHere (This1 fa) $ zipNThese fas gas
+    TheseHere ga gas -> TheseHere (These1 fa ga) $ zipNThese fas gas
 
 -- * Generalisation of type classes related to 'These'
 
@@ -222,12 +218,12 @@ This generalises zipping 2 @f@-structures, and requiring that at each @f@-positi
 alignN :: forall a as f g. (SListI as, Semialign f) => NP (f :.: g) (a : as) -> f (NThese g (a : as))
 alignN = \case
   Comp fga :* fgas -> case alignNP fgas of
-    Nothing -> mkThis <$> fga
+    Nothing -> ThisHere <$> fga
     Just fgas' ->
       align fga fgas' <&> \case
-        This fga' -> mkThis fga'
-        That fgas'' -> Those fgas''
-        These fga' fgas'' -> TheseHere fga' $ toNP fgas''
+        This fga' -> ThisHere fga'
+        That fgas'' -> ThatThere fgas''
+        These fga' fgas'' -> TheseHere fga' fgas''
   where
     alignNP :: (SListI as, Semialign f) => NP (f :.: g) as -> Maybe (f (NThese g as))
     alignNP = \case
@@ -276,7 +272,10 @@ instance HPure NThese where
   hpure :: forall k (xs :: [k]) (f :: k -> Type). (SListIN NThese xs) => (forall (a :: k). f a) -> NThese f xs
   hpure fa = case sList :: SList xs of
     SNil -> error "Impossible pattern"
-    SCons -> TheseHere fa $ hpure $ Comp $ Just fa
+    SCons -> case sList :: SList (Tail xs) of
+      SNil -> ThisHere fa
+      SCons -> TheseHere fa $ hpure fa
+
   hcpure ::
     forall k (c :: k -> Constraint) (xs :: [k]) (proxy :: (k -> Constraint) -> Type) (f :: k -> Type).
     (AllN NThese c xs) =>
@@ -285,75 +284,115 @@ instance HPure NThese where
     NThese f xs
   hcpure proxy fa = case sList :: SList xs of
     SNil -> error "Impossible pattern"
-    SCons -> TheseHere fa $ hcpure proxy $ Comp $ Just fa
+    SCons -> case sList :: SList (Tail xs) of
+      SNil -> ThisHere fa
+      SCons -> TheseHere fa $ hcpure proxy fa
 
 instance HAp NThese where
   hap = \case
     Nil -> \case {}
     fna :* fnas -> \case
-      TheseHere fa fas -> TheseHere (apFn fna fa) $ helper fnas fas
-      Those gas -> Those $ hap fnas gas
-    where
-      helper :: NP (f -.-> g) as -> NP (Maybe :.: f) as -> NP (Maybe :.: g) as
-      helper = \case
-        Nil -> \case
-          Nil -> Nil
-        Fn fna :* fnas -> \case
-          Comp fa :* fas -> Comp (fna <$> fa) :* helper fnas fas
+      ThisHere fa -> ThisHere $ apFn fna fa
+      ThatThere gas -> ThatThere $ hap fnas gas
+      TheseHere fa fas -> TheseHere (apFn fna fa) $ hap fnas fas
 
 type instance CollapseTo NThese a = NonEmpty a
 
 instance HCollapse NThese where
-  hcollapse = collapse_NTHese
+  hcollapse = collapse_NThese
     where
-      collapse_NTHese :: (SListI as) => NThese (K a) as -> NonEmpty a
-      collapse_NTHese = \case
-        TheseHere (K fa) fas -> fa :| (fas & hmap (maybe (K Nothing) (K . Just . unK) . unComp) & hcollapse & catMaybes)
-        Those fas -> collapse_NTHese fas
+      collapse_NThese :: (SListI as) => NThese (K a) as -> NonEmpty a
+      collapse_NThese = \case
+        ThisHere fa -> NonEmpty.singleton $ unK fa
+        ThatThere fas -> collapse_NThese fas
+        TheseHere (K fa) fas -> fa `NonEmpty.cons` collapse_NThese fas
 
 type instance AllN NThese c = All c
 
 instance HTraverse_ NThese where
-  htraverse_ f = \case
-    TheseHere fa fas -> f fa *> htraverse_ (traverse_ f . unComp) fas
-    Those fas -> case fas of
-      TheseHere {} -> htraverse_ f fas
-      Those {} -> htraverse_ f fas
-  hctraverse_ proxy f = \case
-    TheseHere fa fas -> f fa *> hctraverse_ proxy (traverse_ f . unComp) fas
-    Those fas -> hctraverse_ proxy f fas
+  htraverse_ ::
+    forall k (xs :: [k]) (g :: Type -> Type) (f :: k -> Type).
+    (SListIN NThese xs, Applicative g) =>
+    (forall (a :: k). f a -> g ()) ->
+    NThese f xs ->
+    g ()
+  htraverse_ f = htraverse_0
+    where
+      htraverse_0 :: (Applicative g) => NThese f as -> g ()
+      htraverse_0 = \case
+        ThisHere fa -> f fa
+        ThatThere fas -> htraverse_0 fas
+        TheseHere fa fas -> f fa *> htraverse_0 fas
+
+  hctraverse_ ::
+    forall k (c :: k -> Constraint) (xs :: [k]) (g :: Type -> Type) (proxy :: (k -> Constraint) -> Type) (f :: k -> Type).
+    (AllN NThese c xs, Applicative g) =>
+    proxy c ->
+    (forall (a :: k). (c a) => f a -> g ()) ->
+    NThese f xs ->
+    g ()
+  hctraverse_ _ f = hctraverse_0
+    where
+      hctraverse_0 :: (AllN NThese c as, Applicative g) => NThese f as -> g ()
+      hctraverse_0 = \case
+        ThisHere fa -> f fa
+        ThatThere fas -> hctraverse_0 fas
+        TheseHere fa fas -> f fa *> hctraverse_0 fas
 
 instance HSequence NThese where
-  hsequence' = \case
-    TheseHere (Comp fga) fgas -> TheseHere <$> fga <*> htraverse' (fmap Comp . traverse unComp . unComp) fgas
-    Those fgas -> case fgas of
-      TheseHere {} -> Those <$> hsequence' fgas
-      Those {} -> Those <$> hsequence' fgas
+  hsequence' = hsequence'0
+    where
+      hsequence'0 :: (Applicative f) => NThese (f :.: g) as -> f (NThese g as)
+      hsequence'0 = \case
+        ThisHere (Comp fga) -> ThisHere <$> fga
+        ThatThere fgas -> ThatThere <$> hsequence'0 fgas
+        TheseHere (Comp fga) fgas -> TheseHere <$> fga <*> hsequence'0 fgas
 
-  hctraverse' proxy f = \case
-    TheseHere fa fas -> TheseHere <$> f fa <*> hctraverse' proxy (fmap Comp . traverse f . unComp) fas
-    Those fas -> Those <$> hctraverse' proxy f fas
+  hctraverse' ::
+    forall k (c :: k -> Constraint) (xs :: [k]) (g :: Type -> Type) (proxy :: (k -> Constraint) -> Type) (f :: k -> Type) (f' :: k -> Type).
+    (AllN NThese c xs, Applicative g) =>
+    proxy c ->
+    (forall (a :: k). (c a) => f a -> g (f' a)) ->
+    NThese f xs ->
+    g (NThese f' xs)
+  hctraverse' _ f = hctraverse'0
+    where
+      hctraverse'0 :: (AllN NThese c as) => NThese f as -> g (NThese f' as)
+      hctraverse'0 = \case
+        ThisHere fa -> ThisHere <$> f fa
+        ThatThere fas -> ThatThere <$> hctraverse'0 fas
+        TheseHere fa fas -> TheseHere <$> f fa <*> hctraverse'0 fas
 
-  htraverse' f = \case
-    TheseHere fa fas -> TheseHere <$> f fa <*> htraverse' (fmap Comp . traverse f . unComp) fas
-    -- Those fas -> Those <$> withNonEmpty (Proxy @(SListIN NThese)) (htraverse' f) fas
-    Those fas -> case fas of
-      TheseHere {} -> Those <$> htraverse' f fas
-      Those {} -> Those <$> htraverse' f fas
+  htraverse' ::
+    forall k (xs :: [k]) (g :: Type -> Type) (f :: k -> Type) (f' :: k -> Type).
+    (SListIN NThese xs, Applicative g) =>
+    (forall (a :: k). f a -> g (f' a)) ->
+    NThese f xs ->
+    g (NThese f' xs)
+  htraverse' f = htraverse'0
+    where
+      htraverse'0 :: NThese f as -> g (NThese f' as)
+      htraverse'0 = \case
+        ThisHere fa -> ThisHere <$> f fa
+        ThatThere fas -> ThatThere <$> htraverse'0 fas
+        TheseHere fa fas -> TheseHere <$> f fa <*> htraverse'0 fas
 
 instance HExpand NThese where
   hexpand fa0 = \case
-    TheseHere fa fas -> fa :* hliftA (fromMaybe fa0 . unComp) fas
-    Those fas -> fa0 :* hexpand fa0 fas
+    ThisHere fa -> fa :* hpure fa0
+    ThatThere fas -> fa0 :* hexpand fa0 fas
+    TheseHere fa fas -> fa :* hexpand fa0 fas
   hcexpand proxy fa0 = \case
-    TheseHere fa fas -> fa :* hcliftA proxy (fromMaybe fa0 . unComp) fas
-    Those fas -> fa0 :* hcexpand proxy fa0 fas
+    ThisHere fa -> fa :* hcpure proxy fa0
+    ThatThere fas -> fa0 :* hcexpand proxy fa0 fas
+    TheseHere fa fas -> fa :* hcexpand proxy fa0 fas
 
 type instance AllZipN NThese c = AllZip c
 
 instance HTrans NThese NThese where
   htrans proxy f = \case
-    TheseHere fa fas -> TheseHere (f fa) $ htrans proxy (Comp . fmap f . unComp) fas
-    Those fas -> Those $ htrans proxy f fas
+    ThisHere fa -> ThisHere $ f fa
+    ThatThere fas -> ThatThere $ htrans proxy f fas
+    TheseHere fa fas -> TheseHere (f fa) $ htrans proxy f fas
 
   hcoerce = unsafeCoerce

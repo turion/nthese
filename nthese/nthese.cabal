@@ -29,7 +29,6 @@ library
     semialign ^>=1.3,
     sop-core ^>=0.5,
     these ^>=1.2,
-    witherable ^>=0.5,
 
   hs-source-dirs: src
   default-language:
@@ -38,4 +37,5 @@ library
   default-extensions:
     DataKinds
     LambdaCase
+    ScopedTypeVariables
     TypeFamilies
