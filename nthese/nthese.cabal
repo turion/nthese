@@ -1,8 +1,11 @@
 cabal-version: 3.0
 name: nthese
 version: 0.1.0.0
--- synopsis:
--- description:
+synopsis: A heterogeneous, n-ary generalisation of These
+description:
+  `NThese` is an n-ary generalisation of the `These` datatype,
+  written in `sop-core` style.
+
 license: BSD-3-Clause
 license-file: LICENSE
 author: Manuel Bärenz
