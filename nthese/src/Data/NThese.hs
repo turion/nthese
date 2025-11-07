@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Data.NThese (module Data.NThese) where
+module Data.NThese where
 
 -- base
 import Data.Function ((&))
@@ -23,6 +23,8 @@ import Data.These qualified as These
 
 -- semialign
 import Data.Align (Align (..), Semialign (..), Unalign (..))
+
+-- * 'NThese'
 
 {- | An n-ary generalisation of the 'These' datatype.
 
@@ -205,7 +207,7 @@ zipNThese = \case
 'align' has this type signature:
 
 @
-'align' :: Semialign f => f a -> f b -> f ('These' a b)
+'align' :: 'Align' f => f a -> f b -> f ('These' a b)
 @
 
 This generalises zipping 2 @f@-structures, and requiring that at each @f@-position we have either an @a@ or a @b@.
@@ -213,7 +215,7 @@ This generalises zipping 2 @f@-structures, and requiring that at each @f@-positi
 'alignN' generalises this in two directions:
 
 1. Incidental: We use nested @f (g a)@-structures. (But @g@ can always be set to identity, and is thus irrelevant.)
-1. Crucial: We have @n@ values instead of 2. At each @f@-position we can have 1 to n values.
+2. Crucial: On the input, we have @n@ values instead of 2. In the output, at each @f@-position we can have 1 to n values.
 -}
 alignN :: forall a as f g. (SListI as, Semialign f) => NP (f :.: g) (a : as) -> f (NThese g (a : as))
 alignN = \case
@@ -243,7 +245,7 @@ nilN = hpure $ Comp nil
 'unalign' has this type signature:
 
 @
-unalign :: Unalign f => f (These a b) -> (f a, f b)
+'unalign' :: 'Unalign' f => f (These a b) -> (f a, f b)
 @
 
 Similar to 'alignN' we generalise this from 2 values to @n@ values.
@@ -259,6 +261,8 @@ unalignN fgas = case sList :: SList as of
 type instance Same NThese = NThese
 
 type instance Prod NThese = NP
+
+-- * Helpers
 
 -- | Helper class to constrain the type level list on 'NThese' always to be nonempty
 class (SListI as) => SListINThese as
